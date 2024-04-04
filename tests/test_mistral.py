@@ -31,7 +31,7 @@ class TestMistral(unittest.TestCase):
 
     def test_3_generation(self):
         input_ids = tokenizer.encode("Hello, my name is", return_tensors="pt")
-        output = svd_model.generate(input_ids, max_length=12)
+        output = svd_model.generate(input_ids, max_length=12, use_cache=True, pad_token_id=tokenizer.eos_token_id)
         print(tokenizer.decode(output[0]))
         self.assertIsNotNone(output)
 
