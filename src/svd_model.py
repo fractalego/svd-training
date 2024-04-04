@@ -26,15 +26,17 @@ class SVDLinear(torch.nn.modules.module.Module):
         self.sigma.data = self.sigma.data.contiguous()
         self.V.data = self.V.data.contiguous()
         self.weight.data = self.weight.data.contiguous()
-        self._svd_linear_weight = self.weight + self.U @ torch.diag(self.sigma) @ self.V.T
 
     def forward(self, input: torch.Tensor) -> torch.Tensor:
-        return input @ self._svd_linear_weight.T
+        return input @ self._get_svd_weight().T
 
     def get_merged_linear(self):
         linear = torch.nn.Linear(self.weight.shape[1], self.weight.shape[0], bias=False)
-        linear.weight = torch.nn.Parameter(self._svd_linear_weight, requires_grad=True)
+        linear.weight = torch.nn.Parameter(self._get_svd_weight(), requires_grad=True)
         return linear
+
+    def _get_svd_weight(self):
+        return self.weight + self.U @ torch.diag(self.sigma) @ self.V.T
 
     @staticmethod
     def create_from_weight(weight, rank_fraction=0.1, niter=2):
