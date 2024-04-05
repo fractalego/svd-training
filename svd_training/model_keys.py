@@ -12,6 +12,7 @@ def get_mlp_names() -> List[str]:
         "self_attn.o_proj",
     ]
 
+
 def get_norm_names() -> List[str]:
     return [
         "input_layernorm",
