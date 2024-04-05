@@ -27,6 +27,10 @@ class SVDLinear(torch.nn.modules.module.Module):
         self.sigma = torch.nn.Parameter(sigma, requires_grad=True)
         self.V = torch.nn.Parameter(V, requires_grad=False)
         self.weight = torch.nn.Parameter(weight, requires_grad=False)
+        self.U.data = self.U.data.contiguous()
+        self.sigma.data = self.sigma.data.contiguous()
+        self.V.data = self.V.data.contiguous()
+        self.weight.data = self.weight.data.contiguous()
 
     def forward(self, input: torch.Tensor) -> torch.Tensor:
         return input @ self._get_svd_weight().T
@@ -49,12 +53,6 @@ class SVDLinear(torch.nn.modules.module.Module):
 
 
 class SVDMistralForCausalLM(MistralForCausalLM):
-    mlp_names = get_mlp_names()
-    norm_names = [
-        "input_layernorm",
-        "post_attention_layernorm",
-    ]
-
     def __init__(self, model):
         super().__init__(model.config)
         self.model = model.model
@@ -62,7 +60,7 @@ class SVDMistralForCausalLM(MistralForCausalLM):
 
     def merge_all(self):
         for layer_index in range(len(self.model.layers)):
-            for mlp_name in self.mlp_names:
+            for mlp_name in get_mlp_names():
                 exec(
                     f"self.model.layers[layer_index].{mlp_name} = self.model.layers[layer_index].{mlp_name}.get_merged_linear()"
                 )
@@ -116,4 +114,4 @@ class SVDMistralForCausalLM(MistralForCausalLM):
                     f"Layer {layer_index} on {mlp_name} with rank_fraction={rank_fraction} is substituted"
                 )
 
-        return model
+        return SVDMistralForCausalLM(model)
