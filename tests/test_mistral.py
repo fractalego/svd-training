@@ -31,6 +31,12 @@ class TestMistral(unittest.TestCase):
         expected_params = 131_519_488
         self.assertEqual(expected_params, total_params)
 
+    def test_2_trainable_parameters_count_after_training(self):
+        svd_model.train()
+        total_params = sum(p.numel() for p in svd_model.parameters() if p.requires_grad)
+        expected_params = 131_519_488
+        self.assertEqual(expected_params, total_params)
+
     def test_3_generation(self):
         input_ids = tokenizer.encode("Hello, my name is", return_tensors="pt")
         svd_model.half().cuda()

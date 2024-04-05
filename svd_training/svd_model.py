@@ -27,6 +27,10 @@ class SVDLinear(torch.nn.modules.module.Module):
         self.sigma = torch.nn.Parameter(sigma, requires_grad=True)
         self.V = torch.nn.Parameter(V, requires_grad=False)
         self.weight = torch.nn.Parameter(weight, requires_grad=False)
+        self.U.data = self.U.data.contiguous()
+        self.sigma.data = self.sigma.data.contiguous()
+        self.V.data = self.V.data.contiguous()
+        self.weight.data = self.weight.data.contiguous()
 
     def forward(self, input: torch.Tensor) -> torch.Tensor:
         return input @ self._get_svd_weight().T
@@ -49,12 +53,6 @@ class SVDLinear(torch.nn.modules.module.Module):
 
 
 class SVDMistralForCausalLM(MistralForCausalLM):
-    mlp_names = get_mlp_names()
-    norm_names = [
-        "input_layernorm",
-        "post_attention_layernorm",
-    ]
-
     def __init__(self, model):
         super().__init__(model.config)
         self.model = model.model
@@ -62,7 +60,7 @@ class SVDMistralForCausalLM(MistralForCausalLM):
 
     def merge_all(self):
         for layer_index in range(len(self.model.layers)):
-            for mlp_name in self.mlp_names:
+            for mlp_name in get_mlp_names():
                 exec(
                     f"self.model.layers[layer_index].{mlp_name} = self.model.layers[layer_index].{mlp_name}.get_merged_linear()"
                 )
@@ -84,14 +82,12 @@ class SVDMistralForCausalLM(MistralForCausalLM):
                 U = state_dict[f"model.layers.{layer_index}.{mlp_name}.U"]
                 sigma = state_dict[f"model.layers.{layer_index}.{mlp_name}.sigma"]
                 V = state_dict[f"model.layers.{layer_index}.{mlp_name}.V"]
-                exec(
-                    f"model.model.layers[layer_index].{mlp_name} = SVDLinear(U, sigma, V, weight)"
-                )
+                model.model.layers[layer_index][mlp_name] = SVDLinear(U, sigma, V, weight)
+
             for norm_name in get_norm_names():
-                weight_name = f"model.layers.{layer_index}.{norm_name}.weight"
-                exec(
-                    f"model.model.layers[layer_index].{norm_name}.weight = torch.nn.Parameter(state_dict['{weight_name}'])"
-                )
+                weight_name = model.layers[layer_index][norm_name].weight
+                model.model.layers[layer_index][norm_name].weight = torch.nn.Parameter(state_dict[weight_name])
+
         weight = state_dict[f"lm_head.weight"]
         U = state_dict[f"lm_head.U"]
         sigma = state_dict[f"lm_head.sigma"]
@@ -108,12 +104,10 @@ class SVDMistralForCausalLM(MistralForCausalLM):
         )
         for layer_index in range(len(model.base_model.layers)):
             for mlp_name in get_mlp_names():
-                exec(f"weight = model.model.layers[layer_index].{mlp_name}.weight")
-                exec(
-                    f"model.model.layers[layer_index].{mlp_name} = SVDLinear.create_from_weight(weight, rank_fraction)"
-                )
+                weight = model.model.layers[layer_index][mlp_name].weight
+                model.model.layers[layer_index][mlp_name] = SVDLinear.create_from_weight(weight, rank_fraction)
                 _logger.info(
                     f"Layer {layer_index} on {mlp_name} with rank_fraction={rank_fraction} is substituted"
                 )
 
-        return model
+        return SVDMistralForCausalLM(model)
