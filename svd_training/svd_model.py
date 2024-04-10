@@ -82,14 +82,12 @@ class SVDMistralForCausalLM(MistralForCausalLM):
                 U = state_dict[f"model.layers.{layer_index}.{mlp_name}.U"]
                 sigma = state_dict[f"model.layers.{layer_index}.{mlp_name}.sigma"]
                 V = state_dict[f"model.layers.{layer_index}.{mlp_name}.V"]
-                exec(
-                    f"model.model.layers[layer_index].{mlp_name} = SVDLinear(U, sigma, V, weight)"
-                )
+                model.model.layers[layer_index][mlp_name] = SVDLinear(U, sigma, V, weight)
+
             for norm_name in get_norm_names():
-                weight_name = f"model.layers.{layer_index}.{norm_name}.weight"
-                exec(
-                    f"model.model.layers[layer_index].{norm_name}.weight = torch.nn.Parameter(state_dict['{weight_name}'])"
-                )
+                weight_name = model.layers[layer_index][norm_name].weight
+                model.model.layers[layer_index][norm_name].weight = torch.nn.Parameter(state_dict[weight_name])
+
         weight = state_dict[f"lm_head.weight"]
         U = state_dict[f"lm_head.U"]
         sigma = state_dict[f"lm_head.sigma"]
@@ -106,10 +104,8 @@ class SVDMistralForCausalLM(MistralForCausalLM):
         )
         for layer_index in range(len(model.base_model.layers)):
             for mlp_name in get_mlp_names():
-                exec(f"weight = model.model.layers[layer_index].{mlp_name}.weight")
-                exec(
-                    f"model.model.layers[layer_index].{mlp_name} = SVDLinear.create_from_weight(weight, rank_fraction)"
-                )
+                weight = model.model.layers[layer_index][mlp_name].weight
+                model.model.layers[layer_index][mlp_name] = SVDLinear.create_from_weight(weight, rank_fraction)
                 _logger.info(
                     f"Layer {layer_index} on {mlp_name} with rank_fraction={rank_fraction} is substituted"
                 )
