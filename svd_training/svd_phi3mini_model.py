@@ -1,58 +1,17 @@
-import torch
 import logging
-
 from typing import Mapping, Any
-from transformers import MistralForCausalLM, MistralConfig
+
+import torch
+from transformers import Phi3Config, Phi3ForCausalLM
+
 from svd_training.model_keys import get_mlp_names, get_norm_names
+from svd_training.svd_linear import SVDLinear
 
 _logger = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO)
 
 
-class SVDLinear(torch.nn.modules.module.Module):
-    U: torch.Tensor
-    sigma: torch.Tensor
-    V: torch.Tensor
-    weight: torch.Tensor
-
-    def __init__(
-        self,
-        U: torch.Tensor,
-        sigma: torch.Tensor,
-        V: torch.Tensor,
-        weight: torch.Tensor,
-    ):
-        super().__init__()
-        self.U = torch.nn.Parameter(U, requires_grad=False)
-        self.sigma = torch.nn.Parameter(sigma, requires_grad=True)
-        self.V = torch.nn.Parameter(V, requires_grad=False)
-        self.weight = torch.nn.Parameter(weight, requires_grad=False)
-        self.U.data = self.U.data.contiguous()
-        self.sigma.data = self.sigma.data.contiguous()
-        self.V.data = self.V.data.contiguous()
-        self.weight.data = self.weight.data.contiguous()
-
-    def forward(self, input: torch.Tensor) -> torch.Tensor:
-        return input @ self._get_svd_weight().T
-
-    def get_merged_linear(self):
-        linear = torch.nn.Linear(self.weight.shape[1], self.weight.shape[0], bias=False)
-        linear.weight = torch.nn.Parameter(self._get_svd_weight(), requires_grad=True)
-        return linear
-
-    def _get_svd_weight(self):
-        return self.weight + self.U @ torch.diag(self.sigma) @ self.V.T
-
-    @staticmethod
-    def create_from_weight(weight, rank_fraction=0.1, niter=2):
-        max_rank = min(weight.shape)
-        q = int(max_rank * rank_fraction)
-        U, sigma, V = torch.svd_lowrank(weight, q=q, niter=niter)
-        new_weight = weight - U @ torch.diag(sigma) @ V.T
-        return SVDLinear(U, sigma, V, new_weight)
-
-
-class SVDMistralForCausalLM(MistralForCausalLM):
+class SVDPhi3MiniForCausalLM(Phi3ForCausalLM):
     def __init__(self, model):
         super().__init__(model.config)
         self.model = model.model
@@ -60,7 +19,7 @@ class SVDMistralForCausalLM(MistralForCausalLM):
 
     def merge_all(self):
         for layer_index in range(len(self.model.layers)):
-            for mlp_name in get_mlp_names():
+            for mlp_name in get_mlp_names("microsoft/Phi-3-mini-4k-instruct"):
                 exec(
                     f"self.model.layers[layer_index].{mlp_name} = self.model.layers[layer_index].{mlp_name}.get_merged_linear()"
                 )
@@ -68,16 +27,16 @@ class SVDMistralForCausalLM(MistralForCausalLM):
 
     @staticmethod
     def create_from_state_dict(state_dict: Mapping[str, Any]):
-        model_name = "mistralai/Mistral-7B-Instruct-v0.1"
-        config = MistralConfig.from_pretrained(model_name)
-        model = MistralForCausalLM(config)
+        model_name = "microsoft/Phi-3-mini-4k-instruct"
+        config = Phi3Config.from_pretrained(model_name)
+        model = Phi3ForCausalLM(config)
         model.model.norm.weight = torch.nn.Parameter(state_dict["model.norm.weight"])
         model.model.norm.weight = torch.nn.Parameter(state_dict["model.norm.weight"])
         model.model.embed_tokens.weight = torch.nn.Parameter(
             state_dict["model.embed_tokens.weight"]
         )
         for layer_index in range(len(model.model.layers)):
-            for mlp_name in get_mlp_names():
+            for mlp_name in get_mlp_names(model_name):
                 weight = state_dict[f"model.layers.{layer_index}.{mlp_name}.weight"]
                 U = state_dict[f"model.layers.{layer_index}.{mlp_name}.U"]
                 sigma = state_dict[f"model.layers.{layer_index}.{mlp_name}.sigma"]
@@ -85,7 +44,7 @@ class SVDMistralForCausalLM(MistralForCausalLM):
                 exec(
                     f"model.model.layers[layer_index].{mlp_name} = SVDLinear(U, sigma, V, weight)"
                 )
-            for norm_name in get_norm_names():
+            for norm_name in get_norm_names(model_name):
                 weight_name = f"model.layers.{layer_index}.{norm_name}.weight"
                 exec(
                     f"model.model.layers[layer_index].{norm_name}.weight = torch.nn.Parameter(state_dict['{weight_name}'])"
@@ -95,7 +54,7 @@ class SVDMistralForCausalLM(MistralForCausalLM):
         sigma = state_dict[f"lm_head.sigma"]
         V = state_dict[f"lm_head.V"]
         model.lm_head = SVDLinear(U, sigma, V, weight)
-        return SVDMistralForCausalLM(model)
+        return SVDPhi3MiniForCausalLM(model)
 
     @staticmethod
     def create_from_model(model, rank_fraction):
@@ -105,7 +64,7 @@ class SVDMistralForCausalLM(MistralForCausalLM):
             model.lm_head.weight, rank_fraction
         )
         for layer_index in range(len(model.base_model.layers)):
-            for mlp_name in get_mlp_names():
+            for mlp_name in get_mlp_names("microsoft/Phi-3-mini-4k-instruct"):
                 exec(f"weight = model.model.layers[layer_index].{mlp_name}.weight")
                 exec(
                     f"model.model.layers[layer_index].{mlp_name} = SVDLinear.create_from_weight(weight, rank_fraction)"
@@ -114,4 +73,4 @@ class SVDMistralForCausalLM(MistralForCausalLM):
                     f"Layer {layer_index} on {mlp_name} with rank_fraction={rank_fraction} is substituted"
                 )
 
-        return SVDMistralForCausalLM(model)
+        return SVDPhi3MiniForCausalLM(model)
