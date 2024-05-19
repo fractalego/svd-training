@@ -1,25 +1,14 @@
-import os
 import unittest
-import torch
 
 from transformers import AutoModelForCausalLM, AutoTokenizer
-
-from svd_training.svd_model import SVDMistralForCausalLM
+from svd_training.svd_model import SVDForCausalLM
 
 tokenizer = AutoTokenizer.from_pretrained("mistralai/Mistral-7B-Instruct-v0.1")
 model = AutoModelForCausalLM.from_pretrained("mistralai/Mistral-7B-Instruct-v0.1")
 original_trainable_params = sum(
     p.numel() for p in model.parameters() if p.requires_grad
 )
-_filename = "mistral_svd_model.psd"
-if os.path.exists(_filename):
-    del model
-    svd_model = SVDMistralForCausalLM.create_from_state_dict(torch.load(_filename))
-
-else:
-    svd_model = SVDMistralForCausalLM.create_from_model(model, rank_fraction=0.25)
-    torch.save(svd_model.state_dict(), _filename)
-    del model
+svd_model = SVDForCausalLM.create_from_model(model, rank_fraction=0.25)
 
 
 class TestMistral(unittest.TestCase):
@@ -50,7 +39,7 @@ class TestMistral(unittest.TestCase):
         self.assertIsNotNone(output)
 
     def test_4_merge(self):
-        svd_model.merge_all()
+        svd_model.merge()
         merged_trainable_params = sum(
             p.numel() for p in svd_model.parameters() if p.requires_grad
         )

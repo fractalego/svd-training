@@ -17,8 +17,8 @@ setup(
         "svd_training",
     ],
     install_requires=[
-        "transformers==4.35.2",
-        "torch==2.0.0",
+        "transformers==4.41.0",
+        "torch==2.3.0",
     ],
     classifiers=[
         "License :: OSI Approved :: MIT License",
