@@ -11,7 +11,7 @@ logging.basicConfig(level=logging.INFO)
 class SVDForCausalLM(PreTrainedModel):
     def merge(self):
         for layer_index in range(len(self.model.layers)):
-            for mlp_name in get_mlp_names():
+            for mlp_name in self._target_modules:
                 try:
                     exec(
                         f"self.model.layers[layer_index].{mlp_name} = self.model.layers[layer_index].{mlp_name}.get_merged_linear()"
@@ -22,14 +22,18 @@ class SVDForCausalLM(PreTrainedModel):
         self.lm_head = self.lm_head.get_merged_linear()
 
     @staticmethod
-    def create_from_model(model, rank_fraction):
+    def create_from_model(model, rank_fraction, target_modules=None):
+        if target_modules is None:
+            target_modules = get_mlp_names()
+        model._target_modules = target_modules
+
         _logger.info(f"Building SVD model with rank_fraction={rank_fraction}")
         _logger.info(f"lm_head is substituted with rank_fraction={rank_fraction}")
         model.lm_head = SVDLinear.create_from_weight(
             model.lm_head.weight, rank_fraction
         )
         for layer_index in range(len(model.base_model.layers)):
-            for mlp_name in get_mlp_names():
+            for mlp_name in target_modules:
                 try:
                     exec(f"weight = model.model.layers[layer_index].{mlp_name}.weight")
                     exec(
